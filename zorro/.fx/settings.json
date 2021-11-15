@@ -1,0 +1,22 @@
+{
+    "appName": "zorro",
+    "projectId": "e1bf0f48-3523-4d51-ab48-53da08c118bb",
+    "solutionSettings": {
+        "name": "fx-solution-azure",
+        "version": "1.0.0",
+        "hostType": "SPFx",
+        "azureResources": [],
+        "capabilities": [
+            "Tab"
+        ],
+        "activeResourcePlugins": [
+            "fx-resource-spfx",
+            "fx-resource-local-debug",
+            "fx-resource-appstudio"
+        ]
+    },
+    "version": "1.0.0",
+    "activeEnvironment": "default",
+    "isFromSample": false,
+    "programmingLanguage": "typescript"
+}
