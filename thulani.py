@@ -109,7 +109,7 @@ for bucket in bucket_list['Buckets']:
         print(bucket['Name'], rules)
  
 
-#list the names of the bucket without policy
+#list the names of the bucket without policy 
 bucket_list = s3_client.list_buckets()
 
 for bucket in bucket_list['Buckets']:

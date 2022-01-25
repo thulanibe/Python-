@@ -1,24 +1,6 @@
 import boto3
-import os
-import re
 import json
-from botocore.exceptions import ClientError
-import sys
-import io
-# import pytest
-
-
-
-
-
-s3=boto3.client("s3")
-s3_client=boto3.client("s3")
-client = boto3.client("organizations")
-
- 
- 
-
-regions = []
+import os
 
 # Paginate function
 def paginate(method, **kwargs):
@@ -28,193 +10,66 @@ def paginate(method, **kwargs):
         for result in page:
             yield result
 
+# Main entry point for the Lambda Function.
 def lambda_handler(event, context):
-    
- role_arn = 'arn:aws:iam::335418536307:role/aws-reserved/sso.amazonaws.com/AWSReservedSSO_account-admin_788ae45a0b3e7ff0'
-organization_service_role = 'OrganizationAccountAccessRole'
-sts_role_session_name = 'org-session'
-  
-session = boto3.Session(region_name='us-east-1')
-org_client = session.client('organizations')
-# regions = 'regions'
-regions = [regions['RegionName'] for regions in session.client('ec2').describe_regions()['Regions']]
-
+# Set environment variables
+  aws_region = os.environ.get('aws_region')
+  function_name = os.environ.get('function_name')
+  accounts_to_exclude = os.environ.get('accounts_to_exclude')
+  organization_service_role = os.environ.get('OrganizationAccountAccessRole1')
+  sts_role_session_name = os.environ.get('sts_role_session_name')
+  session = boto3.Session(region_name=aws_region)
+  org_session = session.client('organizations')
+  master_accountId = org_session.describe_organization()['Organization']['MasterAccountId']
+  sts_client = session.client('sts')
+  print(str(event))
+  if 'CodePipeline.job' in event:
+    job_id = event['CodePipeline.job']['id']
+    code_pipeline = session.client('codepipeline')
 
   # Get list of ACTIVE accounts in the organization, this list contains only accounts that have been created or accepted
   # an invitation to the organization.  This list will also contain those accounts without the Organization service role.
+  org_response = org_session.list_accounts()
+  org_accounts = []
+  for key in paginate(org_session.list_accounts):
+    if key['Status'] == 'ACTIVE':
+      org_accounts.append(str(key['Id']))
 
-org_accounts=[]
-for key in paginate(org_client.list_accounts):
-  if key['Status'] == 'ACTIVE':
-   org_accounts.append(str(key['Id']))
+  accounts_to_exclude = [account for account in accounts_to_exclude.split(',')]
+  org_accounts = list(set(org_accounts) - set(accounts_to_exclude))
+  print('Excluding accounts', list(set(accounts_to_exclude)))
+  print('processing accounts', org_accounts)
 
-result = {}
-all_hosts = []
+  #Use the variable below to 
+  org_accounts = ["335418536307"]
 
- 
-org = session.client("organizations")
-
-for account in org_accounts:
-    #iterate through sub accounts
- sts_client = session.client('sts')
-     
- regions = ['us-east-1','us-west-2']
-
- for region in regions:  
-
-  
-  ##############################################################################################################
-  ##############################################################################################################
-        # # Use STS to assume a temporary role in the sub account that has the Organization service role.
-        # # If the sub account does not have the Organization service role it will be excepted.
-        try:
-            role_arn = 'arn:aws:iam::' + account + ':role/' + organization_service_role
-           
-            sts_response = sts_client.assume_role(
+  # Execute CloudWatch Lambda task function
+  lambda_client = session.client('lambda')
+  for account in org_accounts:
+    if account not in accounts_to_exclude:
+      try:
+        if account != master_accountId:
+          role_arn = 'arn:aws:iam::' + account + ':role/' + organization_service_role
+          sts_response = sts_client.assume_role(
             RoleArn=role_arn,
             RoleSessionName=sts_role_session_name,
             DurationSeconds=900
+            )
+        
+        print('Calling Lambda function to process account ', account)
+        payload = {
+          "account": account
+        }
+        payload = json.dumps(payload)
+        print(payload)
+        lambda_client.invoke(
+          FunctionName=function_name,
+          InvocationType='Event',
+          LogType='Tail',
+          Payload=payload
           )
-            response = sts_client.get_caller_identity()
-            print(response)
-        
-
-          # Create boto3 session for account.
-            sts_session = boto3.Session(
-            aws_access_key_id=sts_response['Credentials']['AccessKeyId'],
-            aws_secret_access_key=sts_response['Credentials']['SecretAccessKey'],
-            aws_session_token=sts_response['Credentials']['SessionToken'],
-            # region_name=region
-        )
-        except:
+      except Exception as err:
         # If sub account does not have Organization service role we log it and ignore the account.
-          sts_session = ''
-          print('failed to assume role for account', account)
-          break
-        else:
-          sts_session = session 
-        
-    ##############################################################################################################
-    ##############################################################################################################
-
-        if sts_session != '':
-
-          info = []
-        
-          #### Code to execute against all regions in every account
-        s3_client = sts_session.client('s3', region_name=region)
-        ssm_client = sts_session.client('ssm', region_name=region)
-        print('Processing account', account, " and region ", regions)
-
- # Retrieve the policy of the specified buckets and indicate no policy for buckets without life cycle policy 
-
- s3_client = boto3.client('s3')
-    
- bucket_list = s3_client.list_buckets()
-
- for bucket in bucket_list['Buckets']:
-
-        try:
-            lifecycle = s3_client.get_bucket_lifecycle(Bucket=bucket['Name'])
-            rules = lifecycle['Rules']
-        except :
-          
-            rules = 'No Policy'
-        print(bucket['Name'], rules)
-        
-
-        
-#filter and name matching buckets based on tags 
-
-client = boto3.client('s3')
-# get list of buckets this iam role can see
-buckets = client.list_buckets()['Buckets']
-
-# iterate through list of buckets looking at tags
-matching_buckets = []
-# tag key and value to search for
-tag_key = 'test'
-tag_value = '442'
-
-for idx, bucket in enumerate(buckets):
-#comment out following line if you don't want to see the progress
-#print(f'{idx+1} of {len(buckets)} - {bucket["Name"]}')
-
-    try:
-        tags = client.get_bucket_tagging(Bucket=bucket['Name'])['TagSet']
-    except client.exceptions.ClientError:
-        continue
-    # iterate through tags looking for specific key
-    for tag in tags:
-        if tag['Key'] == tag_key and tag['Value'] == tag_value:
-            matching_buckets.append(bucket['Name'])
-
-print("buckets belonging to", tag_value, "are: ", matching_buckets)
-     
-
-#list the names of the bucket without policy
-bucket_list = s3_client.list_buckets()
-
-for bucket in bucket_list['Buckets']:
-    bucket_with_no_policy=[]
-    try:
-        lifecycle = s3_client.get_bucket_lifecycle(Bucket=bucket['Name'])
-        rules = lifecycle['Rules']
-    except :
-        rules = 'No Policy'
-        bucket_with_no_policy.append(bucket['Name'])
-        print(bucket_with_no_policy)
-
-#put bucket policy for buckets without life cycle policy
-
-    for bucket in bucket_with_no_policy:
-        s3 = boto3.resource('s3')
-        bucket_lifecycle_configuration = s3.BucketLifecycleConfiguration(bucket)
-        response = bucket_lifecycle_configuration.put(
-            LifecycleConfiguration={
-                'Rules': [
-                    {
-                        'Expiration': {
-                            'Days': 31,
-                        },
-                        'ID': 'jcrew-default-s3-lifecycle',
-                        'Prefix': '',
-                        'Status': 'Enabled',
-                        'Transitions': [
-                            {
-                                'Days': 30,
-                                'StorageClass': 'INTELLIGENT_TIERING'
-                            },
-                        ],
-                        'NoncurrentVersionTransitions': [
-                            {
-                                'NoncurrentDays': 30,
-                                'StorageClass': 'INTELLIGENT_TIERING'
-                            },
-                        ],
-                        'NoncurrentVersionExpiration': {
-                            'NoncurrentDays': 31
-                        },
-                         "AbortIncompleteMultipartUpload": {
-                            "DaysAfterInitiation": 7
-                         }
-                    },
-                ]
-            }
-        )
-
-
-
-
-lambda_handler(
-  {
-    'action': 'run'
-  },
-  'context'
-)
-            
-
-            
-
-
-            
+        print('failed to assume role for account', account, err)
+      if 'CodePipeline.job' in event:
+        code_pipeline.put_job_success_result(jobId=job_id)

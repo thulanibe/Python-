@@ -13,7 +13,6 @@ def paginate(method, **kwargs):
 
 def lambda_handler(event, context):
  
-  organization_service_role = 'OrganizationAccountAccessRole'
   sts_role_session_name = 'org-session'
   
   session = boto3.Session(region_name='us-east-1')
