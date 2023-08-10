@@ -1,0 +1,50 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Checkout') {
+            steps {
+                // Checkout your source code from version control
+                // For example, using Git:
+                git 'https://github.com/your-repo.git'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                // Build your application or any other necessary tasks
+                // For example, using Maven:
+                sh 'mvn clean package'
+            }
+        }
+
+        stage('Deploy to ArgoCD') {
+            environment {
+                ARGOCD_SERVER = 'https://argocd.example.com'  // ArgoCD server URL
+                ARGOCD_TOKEN = credentials('argocd-token')  // Jenkins credentials for ArgoCD token
+                ARGOCD_APP_NAME = 'your-app-name'  // Name of your ArgoCD application
+                ARGOCD_APP_PROJECT = 'your-app-project'  // ArgoCD project where the application belongs
+            }
+            steps {
+                // Install ArgoCD CLI
+                sh 'curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64'
+                sh 'chmod +x /usr/local/bin/argocd'
+
+                // Login to ArgoCD using the token
+                sh "argocd login $ARGOCD_SERVER --insecure --username admin --password $ARGOCD_TOKEN"
+
+                // Sync the application with ArgoCD
+                sh "argocd app sync $ARGOCD_APP_NAME --project $ARGOCD_APP_PROJECT"
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Deployment to ArgoCD succeeded!'
+        }
+        failure {
+            echo 'Deployment to ArgoCD failed.'
+        }
+    }
+}
